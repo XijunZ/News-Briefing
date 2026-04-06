@@ -2,7 +2,7 @@
 
 An autonomous agent that delivers a curated daily news briefing to a web page, Notion, and Slack — powered by Claude Code, GitHub Actions, and GitHub Pages. Zero API costs beyond a Claude subscription.
 
-**Live demo:** https://savagecabbagecausesravage.github.io/News-Briefing/
+**Live demo:** https://xijunz.github.io/News-Briefing/
 
 ## What it does
 
