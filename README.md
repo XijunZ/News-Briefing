@@ -2,6 +2,33 @@
 
 A complete guide to building an autonomous daily news briefing agent that fetches, summarizes, translates, and publishes news — using Claude Code scheduled triggers, GitHub Actions, and GitHub Pages. Zero API costs.
 
+## Quick Start (Fork & Customise)
+
+The fastest way to get started is to **fork this repo** and customise it:
+
+1. **Fork** this repo on GitHub
+2. Make the repo **public** (required for free GitHub Pages)
+3. Get a free **NewsAPI key** at [newsapi.org/register](https://newsapi.org/register)
+4. Add it as a GitHub Actions secret: repo Settings → Secrets → `NEWS_API_KEY`
+5. Create a **GitHub fine-grained PAT** (Settings → Developer settings → Personal access tokens) scoped to your fork with Contents read/write
+6. **Enable GitHub Pages**: repo Settings → Pages → branch: `main`, folder: `/docs`
+7. Run the **Fetch News Data** workflow manually (Actions tab → Run workflow) to get initial data
+8. Create a **Claude Code scheduled trigger** using the trigger prompt template below
+9. Customise `src/sources.yaml` for your topics and `src/template.html` for your branding
+
+Your page will be live at `https://<your-username>.github.io/<repo-name>/`
+
+### Key files to customise:
+
+| File | What to change |
+|------|---------------|
+| `src/sources.yaml` | Your news topics, RSS feeds, NewsAPI queries, category weights |
+| `src/template.html` | Page title, colours, languages, layout |
+| `src/generate_page.py` | Section/subsection names, language translations (SECTION_CN, SUBSECTION_CN dicts) |
+| `src/summarize_cli.py` | `MAX_TOTAL` (article cap), `MAX_PER_SUBSECTION` |
+| `.github/workflows/fetch-news.yml` | Cron schedule (adjust for your timezone) |
+| Trigger prompt | Content rules, item count, language, Notion/Slack config |
+
 ---
 
 ## What You Get
@@ -380,3 +407,101 @@ The cron schedules use UTC. Common conversions:
 | London (BST) | 07:00 UTC | `0 7 * * *` |
 
 Set the fetch workflow 5 minutes before the trigger.
+
+---
+
+## Appendix: Claude Code Trigger Prompt Template
+
+Copy this template and customise the bracketed sections for your setup. Create the trigger via Claude Code's `/schedule` command or the RemoteTrigger API.
+
+**Configuration:**
+- Model: `claude-sonnet-4-6`
+- Cron: `0 0 * * *` (adjust to your timezone)
+- persist_session: `true`
+- allowed_tools: `["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent", "mcp__Notion__*", "mcp__Slack__*"]`
+- MCP connections: Notion + Slack (optional, remove if not needed)
+
+**Prompt:**
+
+```
+You are an AUTONOMOUS remote agent. NO human is watching. NEVER send text-only messages. EVERY response MUST contain a tool call.
+
+## Phase 1: Build the briefing (do this yourself)
+
+### Step 1: Setup
+git clone https://[YOUR_GITHUB_PAT]@github.com/[YOUR_USERNAME]/[YOUR_REPO].git /tmp/nb 2>&1 && cd /tmp/nb && bash setup.sh 2>&1 | tail -5
+
+### Step 2: Read articles
+cd /tmp/nb/src && python summarize_cli.py /tmp/nb/data/fetched.json 2>&1
+If file missing, use WebSearch for today's news.
+
+### Step 3: Write briefing
+IMMEDIATELY use Write tool to create /tmp/nb/data/briefing.md. Do NOT announce it.
+
+Write 15-18 items. Format:
+
+## [SECTION NAME]
+### [SUBSECTION NAME]
+#### Title in English | Source | URL
+EN: 2 sentence summary.
+CN: [YOUR SECOND LANGUAGE] summary.
+TitleCN: [YOUR SECOND LANGUAGE] title translation
+
+[REPEAT FOR ALL YOUR SECTIONS/SUBSECTIONS]
+
+CRITICAL CONTENT RULES:
+[YOUR CONTENT RULES — topics, weights, must-include items, editorial preferences]
+
+### Step 4: Build HTML
+cd /tmp/nb/src && python parse_briefing.py /tmp/nb/data/briefing.md /tmp/nb/data/summarized.json 2>&1 && python main.py generate /tmp/nb/data/summarized.json 2>&1
+
+### Step 5: Push to GitHub
+cd /tmp/nb && git config user.name "news-briefing-bot" && git config user.email "bot@users.noreply.github.com" && git add docs/ && git diff --staged --quiet || git commit -m "Update briefing $(date -u +%Y-%m-%d)" && git push 2>&1
+
+## Phase 2: Write to Notion and Slack (MUST use subagent)
+
+[OPTIONAL — remove this phase if you don't use Notion/Slack]
+
+IMPORTANT: MCP tools do NOT work directly in this trigger session. You MUST delegate to a SUBAGENT using the Agent tool.
+
+Read the briefing markdown first:
+cat /tmp/nb/data/briefing.md
+
+Then spawn a subagent with the Agent tool. Pass the FULL briefing content in the prompt:
+
+"You are a Notion + Slack writer agent. Do TWO things:
+
+## Task 1: Write to Notion
+1. Use ToolSearch with query 'notion' to load Notion MCP tools.
+2. Search for a page called '[YOUR PARENT PAGE NAME]' using notion-search. If not found, create it.
+3. Create a child page titled '[YOUR PAGE TITLE] — YYYY-MM-DD' (today's date).
+4. Write content as Notion blocks with hyperlinked article titles.
+
+## Task 2: Send Slack message
+1. Use ToolSearch with query 'slack' to load Slack MCP tools.
+2. Send a DM to [YOUR NAME] with top 5 headlines and link to the full page.
+
+Here is the briefing content:
+[PASTE THE FULL BRIEFING.MD CONTENT HERE]"
+
+## Phase 3: Verify
+head -20 /tmp/nb/docs/index.html
+```
+
+### Language Customisation
+
+The default setup uses English + Chinese. To change the second language:
+
+1. **Trigger prompt:** Replace `CN:` and `TitleCN:` with your language code (e.g., `FR:`, `TitleFR:`)
+2. **`src/parse_briefing.py`:** Update the regex patterns to match your new field names
+3. **`src/generate_page.py`:** Update `SECTION_CN` and `SUBSECTION_CN` dicts with your translations
+4. **`src/template.html`:** Replace `中文` button label and `lang-cn` CSS classes
+
+### Content Customisation
+
+To change topics entirely (e.g., sports + entertainment instead of finance + tech):
+
+1. **`src/sources.yaml`:** Replace all categories, RSS feeds, and NewsAPI queries
+2. **`src/parse_briefing.py`:** Update `SECTION_MAP` and `section_order` to match your new categories
+3. **`src/generate_page.py`:** Update `SECTION_CN` and `SUBSECTION_CN` translation dicts
+4. **Trigger prompt:** Update section names, subsections, and content rules
